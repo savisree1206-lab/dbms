@@ -97,7 +97,7 @@ function insertRegistration(user_id, event_id, res) {
 // GET club members
 app.get('/api/clubs/:id/members', (req, res) => {
     const { id } = req.params;
-    const query = 'SELECT * FROM members WHERE club_id = ? ORDER BY FIELD(role, "Office Bearer", "Old Member", "New Member")';
+    const query = "SELECT * FROM members WHERE club_id = ? ORDER BY FIELD(role, 'Office Bearer', 'Old Member', 'New Member')";
     db.query(query, [id], (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(results);
