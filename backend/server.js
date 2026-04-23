@@ -9,9 +9,11 @@ app.use(express.json());
 
 const db = mysql.createConnection({
     host: process.env.DB_HOST || 'localhost',
+    port: process.env.DB_PORT || 3306,
     user: process.env.DB_USER || 'root',
     password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'club_management'
+    database: process.env.DB_NAME || 'club_management',
+    ssl: process.env.DB_HOST && process.env.DB_HOST.includes('aivencloud') ? { rejectUnauthorized: false } : undefined
 });
 
 db.connect((err) => {
@@ -24,7 +26,7 @@ db.connect((err) => {
 
 // Basic Routes
 app.get('/api/events', (req, res) => {
-    const query = 'SELECT * FROM events ORDER BY event_date ASC';
+    const query = 'SELECT events.*, clubs.name AS club_name FROM events JOIN clubs ON events.club_id = clubs.id ORDER BY event_date ASC';
     db.query(query, (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(results);
@@ -65,13 +67,32 @@ app.post('/api/events', (req, res) => {
 });
 
 app.post('/api/register', (req, res) => {
-    const { user_id, event_id } = req.body;
-    const query = 'INSERT INTO registrations (user_id, event_id) VALUES (?, ?)';
-    db.query(query, [user_id, event_id], (err, results) => {
+    const { event_id, name, email } = req.body;
+    db.query('SELECT id FROM users WHERE email = ?', [email], (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: 'Registered successfully', id: results.insertId });
+        if (results.length > 0) {
+            insertRegistration(results[0].id, event_id, res);
+        } else {
+            db.query('INSERT INTO users (name, email, password) VALUES (?, ?, "defaultpass")', [name, email], (err, insertRes) => {
+               if (err) return res.status(500).json({ error: err.message });
+               insertRegistration(insertRes.insertId, event_id, res);
+            });
+        }
     });
 });
+
+function insertRegistration(user_id, event_id, res) {
+    const query = 'INSERT INTO registrations (user_id, event_id) VALUES (?, ?)';
+    db.query(query, [user_id, event_id], (err, results) => {
+        if (err) {
+            if (err.code === 'ER_DUP_ENTRY') {
+                return res.status(400).json({ error: 'Already registered for this event' });
+            }
+            return res.status(500).json({ error: err.message });
+        }
+        res.json({ message: 'Registered successfully', id: results.insertId });
+    });
+}
 
 // GET club members
 app.get('/api/clubs/:id/members', (req, res) => {
@@ -83,17 +104,49 @@ app.get('/api/clubs/:id/members', (req, res) => {
     });
 });
 
-// Submit join request
+// GET club events
+app.get('/api/clubs/:id/events', (req, res) => {
+    const { id } = req.params;
+    const query = 'SELECT * FROM events WHERE club_id = ? ORDER BY event_date ASC';
+    db.query(query, [id], (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(results);
+    });
+});
+
+// GET club registrations
+app.get('/api/clubs/:id/registrations', (req, res) => {
+    const { id } = req.params;
+    const query = `
+        SELECT users.name, events.title AS event_title 
+        FROM registrations 
+        JOIN users ON registrations.user_id = users.id 
+        JOIN events ON registrations.event_id = events.id 
+        WHERE events.club_id = ?
+        ORDER BY registrations.registered_at DESC
+    `;
+    db.query(query, [id], (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(results);
+    });
+});
+
+// Submit join request and add to member
 app.post('/api/clubs/:id/join', (req, res) => {
     const { id } = req.params;
     const { name, email, applied_position, idea } = req.body;
-    const query = 'INSERT INTO join_requests (club_id, name, email, applied_position, idea) VALUES (?, ?, ?, ?, ?)';
-    db.query(query, [id, name, email, applied_position, idea], (err, results) => {
-        if (err) {
-            console.error('Error submitting join request:', err);
-            return res.status(500).json({ error: err.message });
-        }
-        res.status(201).json({ message: 'Join request submitted successfully', id: results.insertId });
+    const role = applied_position || 'New Member';
+    
+    // Insert directly to members for immediate display
+    db.query('INSERT INTO members (club_id, name, email, role) VALUES (?, ?, ?, ?)', [id, name, email, role], (err, memberRes) => {
+        if (err) return res.status(500).json({ error: err.message });
+        
+        // Also record the request
+        const query = 'INSERT INTO join_requests (club_id, name, email, applied_position, idea, status) VALUES (?, ?, ?, ?, ?, "Approved")';
+        db.query(query, [id, name, email, applied_position, idea], (err, results) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.status(201).json({ message: 'Join request approved automatically', id: results.insertId });
+        });
     });
 });
 

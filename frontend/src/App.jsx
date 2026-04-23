@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Calendar, Users, MapPin, Plus, ArrowRight, LogIn, X } from 'lucide-react';
 import './App.css';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
 const App = () => {
   const [events, setEvents] = useState([]);
@@ -13,6 +13,11 @@ const App = () => {
   const [showJoinForm, setShowJoinForm] = useState(false);
   const [selectedClub, setSelectedClub] = useState(null);
   const [clubMembers, setClubMembers] = useState([]);
+  const [clubEvents, setClubEvents] = useState([]);
+  const [clubRegistrations, setClubRegistrations] = useState([]);
+  const [showEventRegisterForm, setShowEventRegisterForm] = useState(false);
+  const [selectedEventToRegister, setSelectedEventToRegister] = useState(null);
+  const [eventRegisterData, setEventRegisterData] = useState({ name: '', email: '' });
   const [formData, setFormData] = useState({
     club_id: 1,
     title: '',
@@ -54,18 +59,22 @@ const App = () => {
     fetchClubs();
   }, []);
 
-  const fetchMembers = async (clubId) => {
+  const fetchMembersAndEvents = async (clubId) => {
     try {
       const response = await axios.get(`${API_BASE_URL}/clubs/${clubId}/members`);
       setClubMembers(response.data);
+      const eventResponse = await axios.get(`${API_BASE_URL}/clubs/${clubId}/events`);
+      setClubEvents(eventResponse.data);
+      const regResponse = await axios.get(`${API_BASE_URL}/clubs/${clubId}/registrations`);
+      setClubRegistrations(regResponse.data);
     } catch (error) {
-      console.error('Error fetching members:', error);
+      console.error('Error fetching members or events:', error);
     }
   };
 
   useEffect(() => {
     if (selectedClub) {
-      fetchMembers(selectedClub.id);
+      fetchMembersAndEvents(selectedClub.id);
     }
   }, [selectedClub]);
 
@@ -92,6 +101,23 @@ const App = () => {
     } catch (error) {
       console.error('Error submitting join request:', error);
       alert('Failed to submit request.');
+    }
+  };
+
+  const handleEventRegisterSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await axios.post(`${API_BASE_URL}/register`, {
+        event_id: selectedEventToRegister.id,
+        name: eventRegisterData.name,
+        email: eventRegisterData.email
+      });
+      setRegisteredEvents([...registeredEvents, selectedEventToRegister.id]);
+      alert('Registered successfully!');
+      setShowEventRegisterForm(false);
+      setEventRegisterData({ name: '', email: '' });
+    } catch (err) {
+      alert(err.response?.data?.error || 'Registration failed.');
     }
   };
 
@@ -184,7 +210,7 @@ const App = () => {
 
               <div style={{ borderLeft: '1px solid var(--glass-border)', paddingLeft: '2rem' }}>
                 <h4 style={{ color: 'var(--accent)', marginBottom: '1rem' }}>Active Members</h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '400px', overflowY: 'auto' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '200px', overflowY: 'auto', marginBottom: '1.5rem' }}>
                   {clubMembers.length > 0 ? clubMembers.map(member => (
                     <div key={member.id} style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '0.5rem', border: '1px solid var(--glass-border)' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -196,6 +222,34 @@ const App = () => {
                     </div>
                   )) : (
                     <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No public members listed yet.</p>
+                  )}
+                </div>
+
+                <h4 style={{ color: 'var(--primary)', marginBottom: '1rem' }}>Events Created</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '200px', overflowY: 'auto' }}>
+                  {clubEvents.length > 0 ? clubEvents.map(event => (
+                    <div key={event.id} style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '0.5rem', border: '1px solid var(--glass-border)' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                        <span style={{ fontWeight: 600 }}>{event.title}</span>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{new Date(event.event_date).toLocaleDateString()} at {event.location}</span>
+                      </div>
+                    </div>
+                  )) : (
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No events created yet.</p>
+                  )}
+                </div>
+
+                <h4 style={{ color: 'var(--primary)', marginBottom: '1rem', marginTop: '1.5rem' }}>Registered Participants</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '200px', overflowY: 'auto' }}>
+                  {clubRegistrations.length > 0 ? clubRegistrations.map((reg, index) => (
+                    <div key={index} style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '0.5rem', border: '1px solid var(--glass-border)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontWeight: 600 }}>{reg.name}</span>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{reg.event_title}</span>
+                      </div>
+                    </div>
+                  )) : (
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No registrations yet.</p>
                   )}
                 </div>
               </div>
@@ -256,6 +310,23 @@ const App = () => {
         </div>
       )}
 
+      {/* Event Register Form Modal */}
+      {showEventRegisterForm && (
+        <div className="modal-overlay" onClick={() => setShowEventRegisterForm(false)}>
+          <div className="glass-panel modal-content animate-fade-in" style={{ maxWidth: '400px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+              <h2>Register for {selectedEventToRegister?.title}</h2>
+              <X className="close-btn" onClick={() => setShowEventRegisterForm(false)} />
+            </div>
+            <form onSubmit={handleEventRegisterSubmit} className="event-form">
+              <input type="text" placeholder="Full Name" required value={eventRegisterData.name} onChange={(e) => setEventRegisterData({...eventRegisterData, name: e.target.value})} />
+              <input type="email" placeholder="Email" required value={eventRegisterData.email} onChange={(e) => setEventRegisterData({...eventRegisterData, email: e.target.value})} />
+              <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }}>Confirm Registration</button>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Main Grid */}
       <section>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '3rem' }}>
@@ -275,7 +346,7 @@ const App = () => {
               <div key={event.id} className="glass-panel event-card">
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
                   <span style={{ background: 'rgba(99, 102, 241, 0.1)', color: 'var(--primary)', padding: '0.4rem 0.8rem', borderRadius: '2rem', fontSize: '0.85rem', fontWeight: '600' }}>
-                    Club #{event.club_id}
+                    {event.club_name ? event.club_name : `Club #${event.club_id}`}
                   </span>
                   <Calendar size={18} color="var(--text-muted)" />
                 </div>
@@ -292,15 +363,10 @@ const App = () => {
                 <button 
                   className={`btn ${registeredEvents.includes(event.id) ? 'btn-secondary' : 'btn-primary'}`} 
                   style={{ width: '100%', cursor: registeredEvents.includes(event.id) ? 'default' : 'pointer' }}
-                  onClick={async () => {
+                  onClick={() => {
                     if (!registeredEvents.includes(event.id)) {
-                      try {
-                        await axios.post(`${API_BASE_URL}/register`, { user_id: 1, event_id: event.id });
-                        setRegisteredEvents([...registeredEvents, event.id]);
-                        alert('Registered successfully!');
-                      } catch (err) {
-                        alert('Registration failed. You might already be registered.');
-                      }
+                      setSelectedEventToRegister(event);
+                      setShowEventRegisterForm(true);
                     }
                   }}
                 >
