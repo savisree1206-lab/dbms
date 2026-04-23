@@ -85,6 +85,7 @@ const App = () => {
       alert('Event Created Successfully!');
       setShowForm(false);
       fetchEvents();
+      if (selectedClub) fetchMembersAndEvents(selectedClub.id); // Auto-refresh club events
     } catch (error) {
       console.error('Error creating event:', error);
       alert('Failed to create event.');
@@ -98,6 +99,7 @@ const App = () => {
       alert(`Join request for ${selectedClub.name} submitted! Our office bearers will review your idea.`);
       setShowJoinForm(false);
       setJoinFormData({ name: '', email: '', applied_position: 'New Member', idea: '' });
+      await fetchMembersAndEvents(selectedClub.id); // Auto-refresh immediately
     } catch (error) {
       console.error('Error submitting join request:', error);
       alert('Failed to submit request.');
@@ -199,7 +201,7 @@ const App = () => {
                     onClick={() => {
                       setFormData({ ...formData, club_id: selectedClub.id });
                       setShowForm(true);
-                      setSelectedClub(null); // Close detail modal to show event form
+                      // Let it overlay!
                     }}
                   >
                     Create Event
