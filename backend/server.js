@@ -73,7 +73,7 @@ app.post('/api/register', (req, res) => {
         if (results.length > 0) {
             insertRegistration(results[0].id, event_id, res);
         } else {
-            db.query('INSERT INTO users (name, email, password) VALUES (?, ?, "defaultpass")', [name, email], (err, insertRes) => {
+            db.query('INSERT INTO users (name, email, password) VALUES (?, ?, ?)', [name, email, 'defaultpass'], (err, insertRes) => {
                if (err) return res.status(500).json({ error: err.message });
                insertRegistration(insertRes.insertId, event_id, res);
             });
