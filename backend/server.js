@@ -22,6 +22,62 @@ const db = mysql.createPool({
 console.log('MySQL Database pool created.');
 
 // Basic Routes
+
+// --- Authentication Routes ---
+const clubDomains = {
+    'csi.com': 1,
+    'ieee.com': 2,
+    'sdc.com': 3,
+    'robotics.com': 4,
+    'imc.com': 5,
+    'finearts.com': 6
+};
+
+app.post('/api/auth/signup', (req, res) => {
+    const { name, email, password, requested_role, requested_club_id } = req.body;
+    
+    if (!email || !password || !name) return res.status(400).json({ error: 'All fields are required.' });
+
+    // Allow explicit role assignment for demo purposes
+    let role = requested_role || 'student';
+    let club_id = requested_club_id || null;
+
+    // Optional: Keep domain check as a fallback
+    const domain = email.split('@')[1];
+    if (!requested_role && clubDomains[domain]) {
+        role = 'club_member';
+        club_id = clubDomains[domain];
+    }
+
+    const query = 'INSERT INTO users (name, email, password, role, club_id) VALUES (?, ?, ?, ?, ?)';
+    db.query(query, [name, email, password, role, club_id], (err, results) => {
+        if (err) {
+            if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'This email is already registered.' });
+            return res.status(500).json({ error: 'Database error: ' + err.message });
+        }
+        res.status(201).json({ 
+            message: role === 'club_member' ? 'Welcome Admin! Club assigned.' : 'Signup successful!', 
+            user: { id: results.insertId, name, email, role, club_id } 
+        });
+    });
+});
+
+app.post('/api/auth/login', (req, res) => {
+    const { email, password } = req.body;
+    
+    db.query('SELECT * FROM users WHERE email = ? AND password = ?', [email, password], (err, results) => {
+        if (err) return res.status(500).json({ error: 'Database error: ' + err.message });
+        if (results.length === 0) return res.status(401).json({ error: 'Invalid email or password.' });
+        
+        const user = results[0];
+        res.json({ 
+            message: 'Login successful!', 
+            user: { id: user.id, name: user.name, email: user.email, role: user.role, club_id: user.club_id } 
+        });
+    });
+});
+
+// --- Main App Routes ---
 app.get('/api/events', (req, res) => {
     const query = 'SELECT events.*, clubs.name AS club_name FROM events JOIN clubs ON events.club_id = clubs.id ORDER BY event_date ASC';
     db.query(query, (err, results) => {
@@ -129,33 +185,50 @@ app.get('/api/clubs/:id/registrations', (req, res) => {
     });
 });
 
-// Submit join request and add to member
 app.post('/api/clubs/:id/join', (req, res) => {
     const { id } = req.params;
     const { name, email, applied_position, idea } = req.body;
-    const role = applied_position || 'New Member';
     
-    // Check if already a member to avoid "error message but saving" confusion
+    // Check if already a member
     db.query('SELECT id FROM members WHERE club_id = ? AND email = ?', [id, email], (err, results) => {
         if (err) return res.status(500).json({ error: 'Database error: ' + err.message });
-        
-        if (results.length > 0) {
-            return res.status(400).json({ error: 'You are already a member of this club!' });
-        }
+        if (results.length > 0) return res.status(400).json({ error: 'You are already a member of this club!' });
 
-        // Insert directly to members for immediate display
-        db.query('INSERT INTO members (club_id, name, email, role) VALUES (?, ?, ?, ?)', [id, name, email, role], (err, memberRes) => {
-            if (err) return res.status(500).json({ error: 'Failed to add member: ' + err.message });
+        // Record the request as Pending
+        const query = 'INSERT INTO join_requests (club_id, name, email, applied_position, idea, status) VALUES (?, ?, ?, ?, ?, "Pending")';
+        db.query(query, [id, name, email, applied_position, idea], (err, results) => {
+            if (err) return res.status(500).json({ error: 'Failed to submit request: ' + err.message });
+            res.status(201).json({ message: 'Join request submitted! Awaiting club approval.' });
+        });
+    });
+});
+
+// GET pending join requests for a club
+app.get('/api/clubs/:id/join_requests', (req, res) => {
+    const { id } = req.params;
+    db.query('SELECT * FROM join_requests WHERE club_id = ? AND status = "Pending"', [id], (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(results);
+    });
+});
+
+// Approve a join request
+app.post('/api/join_requests/:reqId/approve', (req, res) => {
+    const { reqId } = req.params;
+    db.query('SELECT * FROM join_requests WHERE id = ?', [reqId], (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (results.length === 0) return res.status(404).json({ error: 'Request not found' });
+        
+        const request = results[0];
+        
+        db.query('UPDATE join_requests SET status = "Approved" WHERE id = ?', [reqId], (updateErr) => {
+            if (updateErr) return res.status(500).json({ error: updateErr.message });
             
-            // Also record the request
-            const query = 'INSERT INTO join_requests (club_id, name, email, applied_position, idea, status) VALUES (?, ?, ?, ?, ?, "Approved")';
-            db.query(query, [id, name, email, applied_position, idea], (err, results) => {
-                if (err) {
-                    console.error('Record request error:', err);
-                    // We don't return error here because member was already added successfully
-                    return res.status(201).json({ message: 'Welcome to the club! Your membership is active.', id: memberRes.insertId });
-                }
-                res.status(201).json({ message: 'Your application has been approved! Welcome to ' + (req.body.club_name || 'the club') + '.', id: memberRes.insertId });
+            db.query('INSERT INTO members (club_id, name, email, role) VALUES (?, ?, ?, ?)', 
+                [request.club_id, request.name, request.email, request.applied_position || 'New Member'], 
+                (insertErr) => {
+                    if (insertErr) return res.status(500).json({ error: insertErr.message });
+                    res.json({ message: 'Member approved and added to club!' });
             });
         });
     });

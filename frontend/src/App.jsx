@@ -40,6 +40,48 @@ const App = () => {
     applied_position: 'New Member',
     idea: ''
   });
+  const [userRole, setUserRole] = useState(null); // 'student' or 'club_member'
+  const [userClubId, setUserClubId] = useState(null);
+  const [joinRequests, setJoinRequests] = useState([]);
+  
+  // Authentication State
+  const [authMode, setAuthMode] = useState('selection'); // 'selection', 'student_login', 'student_signup', 'admin_login', 'admin_signup'
+  const [authData, setAuthData] = useState({ name: '', email: '', password: '', club_id: '' });
+
+  const handleAuthSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const isSignup = authMode.includes('signup');
+      const endpoint = isSignup ? '/auth/signup' : '/auth/login';
+      
+      const payload = { ...authData };
+      if (isSignup && authMode === 'admin_signup') {
+        payload.requested_role = 'club_member';
+        payload.requested_club_id = parseInt(authData.club_id);
+      } else if (isSignup && authMode === 'student_signup') {
+        payload.requested_role = 'student';
+      }
+
+      const response = await axios.post(`${API_BASE_URL}${endpoint}`, payload);
+      
+      const user = response.data.user;
+      setUserRole(user.role);
+      setUserClubId(user.club_id);
+      alert(response.data.message);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Authentication failed');
+    }
+  };
+
+  const handleApproveRequest = async (reqId) => {
+    try {
+      await axios.post(`${API_BASE_URL}/join_requests/${reqId}/approve`);
+      alert('Member approved!');
+      if (selectedClub) fetchMembersAndEvents(selectedClub.id);
+    } catch (error) {
+      alert('Failed to approve member.');
+    }
+  };
 
   // Fetch events from Backend
   const fetchEvents = async () => {
@@ -75,6 +117,12 @@ const App = () => {
       setClubEvents(eventResponse.data);
       const regResponse = await axios.get(`${API_BASE_URL}/clubs/${clubId}/registrations`);
       setClubRegistrations(regResponse.data);
+      
+      // We check if the selected role is club_member and it matches the clubId
+      // Because state is accessed inside effect, we can just fetch it anyway and filter later, 
+      // but to save requests, we just fetch it.
+      const reqResponse = await axios.get(`${API_BASE_URL}/clubs/${clubId}/join_requests`);
+      setJoinRequests(reqResponse.data);
     } catch (error) {
       console.error('Error fetching members or events:', error);
     }
@@ -144,6 +192,74 @@ const App = () => {
     }
   };
 
+  if (!userRole) {
+    if (authMode !== 'selection') {
+      const isSignup = authMode.includes('signup');
+      return (
+        <div className="premium-container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
+          <div className="glass-panel animate-fade-in" style={{ maxWidth: '400px', width: '100%', textAlign: 'center', padding: '3rem' }}>
+            <h2 className="gradient-text" style={{ fontSize: '2rem', marginBottom: '1rem' }}>
+              {authMode.includes('admin') ? 'Club Admin' : 'Student'} {isSignup ? 'Sign Up' : 'Login'}
+            </h2>
+            <form onSubmit={handleAuthSubmit} className="event-form" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', textAlign: 'left' }}>
+              {isSignup && (
+                <input type="text" placeholder="Full Name" required value={authData.name} onChange={(e) => setAuthData({...authData, name: e.target.value})} />
+              )}
+              <input type="email" placeholder="Email Address" required value={authData.email} onChange={(e) => setAuthData({...authData, email: e.target.value})} />
+              <input type="password" placeholder="Password" required value={authData.password} onChange={(e) => setAuthData({...authData, password: e.target.value})} />
+              
+              {isSignup && authMode === 'admin_signup' && (
+                <select 
+                  style={{ width: '100%', padding: '0.75rem', background: 'rgba(0,0,0,0.2)', color: '#fff', border: '1px solid var(--glass-border)', borderRadius: '0.5rem' }}
+                  required
+                  value={authData.club_id}
+                  onChange={(e) => setAuthData({...authData, club_id: e.target.value})}
+                >
+                  <option value="" disabled style={{ background: '#0f172a', color: '#fff' }}>Select your Club...</option>
+                  {clubs.map(c => <option key={c.id} value={c.id} style={{ background: '#0f172a', color: '#fff' }}>{c.name}</option>)}
+                </select>
+              )}
+              
+              <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }}>
+                {isSignup ? 'Create Account' : 'Login'}
+              </button>
+            </form>
+            <button className="btn btn-secondary" style={{ width: '100%', marginTop: '1rem' }} onClick={() => setAuthMode('selection')}>Back</button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="premium-container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
+        <div className="glass-panel animate-fade-in" style={{ maxWidth: '450px', width: '100%', textAlign: 'center', padding: '3rem' }}>
+          <h1 className="gradient-text" style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>ClubHub</h1>
+          <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>Authentication Portal</p>
+          
+          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1.5rem', borderRadius: '1rem', border: '1px solid var(--glass-border)' }}>
+            <h3 style={{ color: 'var(--text-main)', marginBottom: '1rem', fontSize: '1.1rem' }}>Student Portal</h3>
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => { setAuthMode('student_login'); setAuthData({ name: '', email: '', password: '', club_id: '' }); }}>Login</button>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setAuthMode('student_signup'); setAuthData({ name: '', email: '', password: '', club_id: '' }); }}>Sign Up</button>
+            </div>
+          </div>
+          
+          <div style={{ margin: '2rem 0', position: 'relative' }}>
+            <hr style={{ borderColor: 'var(--glass-border)' }} />
+            <span style={{ position: 'absolute', top: '-10px', left: '50%', transform: 'translateX(-50%)', background: '#0f172a', padding: '0 10px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>CLUB ADMIN PORTAL</span>
+          </div>
+
+          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1.5rem', borderRadius: '1rem', border: '1px solid var(--glass-border)' }}>
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => { setAuthMode('admin_login'); setAuthData({ name: '', email: '', password: '', club_id: '' }); }}>Login</button>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setAuthMode('admin_signup'); setAuthData({ name: '', email: '', password: '', club_id: '' }); }}>Sign Up</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="premium-container">
       {/* Navbar */}
@@ -152,6 +268,12 @@ const App = () => {
         <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
           <a href="#" onClick={() => setActiveTab('events')} style={{ color: activeTab === 'events' ? 'var(--primary)' : 'var(--text-main)', textDecoration: 'none' }}>Events</a>
           <a href="#" onClick={() => setActiveTab('clubs')} style={{ color: activeTab === 'clubs' ? 'var(--primary)' : 'var(--text-main)', textDecoration: 'none' }}>Clubs</a>
+          <button 
+            onClick={() => { setUserRole(null); setUserClubId(null); setSelectedClub(null); }}
+            style={{ background: 'none', border: '1px solid var(--accent)', color: 'var(--accent)', padding: '0.4rem 1rem', borderRadius: '2rem', cursor: 'pointer' }}
+          >
+            Logout ({userRole === 'student' ? 'Student' : 'Club Admin'})
+          </button>
         </div>
       </nav>
 
@@ -224,66 +346,98 @@ const App = () => {
                 </div>
 
                 <div style={{ display: 'flex', gap: '1.5rem', marginTop: '1rem' }}>
-                  <button className="btn btn-primary" onClick={() => setShowJoinForm(true)} style={{ flex: 1 }}>Join Club</button>
-                  <button 
-                    className="btn btn-secondary" 
-                    onClick={() => {
-                      setFormData({ ...formData, club_id: selectedClub.id });
-                      setShowForm(true);
-                    }}
-                  >
-                    <Plus size={20} /> Create Event
-                  </button>
+                  {userRole === 'student' && (
+                    <button className="btn btn-primary" onClick={() => setShowJoinForm(true)} style={{ flex: 1 }}>Join Club</button>
+                  )}
+                  {userRole === 'club_member' && userClubId === selectedClub.id && (
+                    <button 
+                      className="btn btn-secondary" 
+                      onClick={() => {
+                        setFormData({ ...formData, club_id: selectedClub.id });
+                        setShowForm(true);
+                      }}
+                      style={{ flex: 1 }}
+                    >
+                      <Plus size={20} /> Create Event
+                    </button>
+                  )}
                 </div>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem' }}>
-                <div>
-                  <h4 style={{ color: 'var(--secondary)', marginBottom: '1.25rem', textTransform: 'uppercase', fontSize: '0.8rem', letterSpacing: '1px' }}>Active Members</h4>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '250px', overflowY: 'auto' }}>
-                    {clubMembers.length > 0 ? clubMembers.map(member => (
-                      <div key={member.id} className="list-item">
-                        <span style={{ fontWeight: 600 }}>{member.name}</span>
-                        <span style={{ fontSize: '0.7rem', padding: '0.3rem 0.7rem', borderRadius: '2rem', background: member.role === 'Office Bearer' ? 'var(--primary)' : 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid var(--glass-border)' }}>
-                          {member.role === 'Office Bearer' ? (member.position || 'Office Bearer') : member.role}
-                        </span>
-                      </div>
-                    )) : (
-                      <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No public members listed yet.</p>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <h4 style={{ color: 'var(--accent)', marginBottom: '1.25rem', textTransform: 'uppercase', fontSize: '0.8rem', letterSpacing: '1px' }}>Recent Events</h4>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '250px', overflowY: 'auto' }}>
-                    {clubEvents.length > 0 ? clubEvents.map(event => (
-                      <div key={event.id} className="list-item">
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                          <span style={{ fontWeight: 600 }}>{event.title}</span>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{new Date(event.event_date).toLocaleDateString()} • {event.location}</span>
+              {userRole === 'club_member' && userClubId === selectedClub.id ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem' }}>
+                  
+                  {/* Join Requests */}
+                  <div>
+                    <h4 style={{ color: '#fbbf24', marginBottom: '1.25rem', textTransform: 'uppercase', fontSize: '0.8rem', letterSpacing: '1px' }}>Pending Join Requests</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '250px', overflowY: 'auto' }}>
+                      {joinRequests.length > 0 ? joinRequests.map(req => (
+                        <div key={req.id} className="list-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                            <span style={{ fontWeight: 600 }}>{req.name}</span>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{req.applied_position}</span>
+                          </div>
+                          <button className="btn btn-primary" style={{ padding: '0.25rem 0.75rem', fontSize: '0.75rem' }} onClick={() => handleApproveRequest(req.id)}>Approve</button>
                         </div>
-                      </div>
-                    )) : (
-                      <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No events created yet.</p>
-                    )}
+                      )) : (
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No pending requests.</p>
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                <div>
-                  <h4 style={{ color: 'var(--primary)', marginBottom: '1.25rem', textTransform: 'uppercase', fontSize: '0.8rem', letterSpacing: '1px' }}>Participants</h4>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '250px', overflowY: 'auto' }}>
-                    {clubRegistrations.length > 0 ? clubRegistrations.map((reg, index) => (
-                      <div key={index} className="list-item">
-                        <span style={{ fontWeight: 600 }}>{reg.name}</span>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{reg.event_title}</span>
-                      </div>
-                    )) : (
-                      <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No registrations yet.</p>
-                    )}
+                  <div>
+                    <h4 style={{ color: 'var(--secondary)', marginBottom: '1.25rem', textTransform: 'uppercase', fontSize: '0.8rem', letterSpacing: '1px' }}>Active Members</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '250px', overflowY: 'auto' }}>
+                      {clubMembers.length > 0 ? clubMembers.map(member => (
+                        <div key={member.id} className="list-item">
+                          <span style={{ fontWeight: 600 }}>{member.name}</span>
+                          <span style={{ fontSize: '0.7rem', padding: '0.3rem 0.7rem', borderRadius: '2rem', background: member.role === 'Office Bearer' ? 'var(--primary)' : 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid var(--glass-border)' }}>
+                            {member.role === 'Office Bearer' ? (member.position || 'Office Bearer') : member.role}
+                          </span>
+                        </div>
+                      )) : (
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No members found.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 style={{ color: 'var(--accent)', marginBottom: '1.25rem', textTransform: 'uppercase', fontSize: '0.8rem', letterSpacing: '1px' }}>Recent Events</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '250px', overflowY: 'auto' }}>
+                      {clubEvents.length > 0 ? clubEvents.map(event => (
+                        <div key={event.id} className="list-item">
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                            <span style={{ fontWeight: 600 }}>{event.title}</span>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{new Date(event.event_date).toLocaleDateString()} • {event.location}</span>
+                          </div>
+                        </div>
+                      )) : (
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No events created yet.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 style={{ color: 'var(--primary)', marginBottom: '1.25rem', textTransform: 'uppercase', fontSize: '0.8rem', letterSpacing: '1px' }}>Participants</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '250px', overflowY: 'auto' }}>
+                      {clubRegistrations.length > 0 ? clubRegistrations.map((reg, index) => (
+                        <div key={index} className="list-item">
+                          <span style={{ fontWeight: 600 }}>{reg.name}</span>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{reg.event_title}</span>
+                        </div>
+                      )) : (
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No registrations yet.</p>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: '300px', background: 'rgba(255,255,255,0.02)', borderRadius: '1rem', border: '1px dashed var(--glass-border)', padding: '2rem', textAlign: 'center' }}>
+                  <Users size={48} style={{ color: 'var(--text-muted)', opacity: 0.5, marginBottom: '1rem' }} />
+                  <h3 style={{ color: 'var(--text-main)', marginBottom: '0.5rem' }}>Private Club Workspace</h3>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Only club members can view join requests, participants, and manage events.</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
