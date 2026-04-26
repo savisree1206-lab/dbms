@@ -17,14 +17,22 @@ const App = () => {
   const [clubRegistrations, setClubRegistrations] = useState([]);
   const [showEventRegisterForm, setShowEventRegisterForm] = useState(false);
   const [selectedEventToRegister, setSelectedEventToRegister] = useState(null);
-  const [eventRegisterData, setEventRegisterData] = useState({ name: '', email: '' });
+  const [eventRegisterData, setEventRegisterData] = useState({ 
+    name: '', 
+    email: '', 
+    registration_type: 'Individual', 
+    team_name: '',
+    team_size: 1,
+    team_members: [] 
+  });
   const [formData, setFormData] = useState({
     club_id: 1,
     title: '',
     description: '',
     event_date: '',
     location: '',
-    capacity: 50
+    capacity: 50,
+    team_size: 1
   });
   const [joinFormData, setJoinFormData] = useState({
     name: '',
@@ -95,31 +103,44 @@ const App = () => {
   const handleJoinSubmit = async (e) => {
     e.preventDefault();
     try {
-      await axios.post(`${API_BASE_URL}/clubs/${selectedClub.id}/join`, joinFormData);
-      alert(`Join request for ${selectedClub.name} submitted! Our office bearers will review your idea.`);
+      const response = await axios.post(`${API_BASE_URL}/clubs/${selectedClub.id}/join`, {
+        ...joinFormData,
+        club_name: selectedClub.name
+      });
+      alert(response.data.message);
       setShowJoinForm(false);
       setJoinFormData({ name: '', email: '', applied_position: 'New Member', idea: '' });
       await fetchMembersAndEvents(selectedClub.id); // Auto-refresh immediately
     } catch (error) {
       console.error('Error submitting join request:', error);
-      alert('Failed to submit request.');
+      alert(error.response?.data?.error || 'Failed to submit request. Please try again.');
     }
   };
 
   const handleEventRegisterSubmit = async (e) => {
     e.preventDefault();
+    if (eventRegisterData.registration_type === 'Team' && !eventRegisterData.team_name) {
+      alert('Please enter your Team Name');
+      return;
+    }
+
     try {
       await axios.post(`${API_BASE_URL}/register`, {
         event_id: selectedEventToRegister.id,
         name: eventRegisterData.name,
-        email: eventRegisterData.email
+        email: eventRegisterData.email,
+        registration_type: eventRegisterData.registration_type,
+        team_name: eventRegisterData.registration_type === 'Team' ? eventRegisterData.team_name : null,
+        team_members: eventRegisterData.registration_type === 'Team' ? eventRegisterData.team_members : null
       });
       setRegisteredEvents([...registeredEvents, selectedEventToRegister.id]);
       alert('Registered successfully!');
       setShowEventRegisterForm(false);
-      setEventRegisterData({ name: '', email: '' });
+      setEventRegisterData({ 
+        name: '', email: '', registration_type: 'Individual', team_name: '', team_size: 1, team_members: [] 
+      });
     } catch (err) {
-      alert(err.response?.data?.error || 'Registration failed.');
+      alert(err.response?.data?.error || 'Registration failed. Please try again.');
     }
   };
 
@@ -147,21 +168,29 @@ const App = () => {
 
       {/* Event Form Modal */}
       {showForm && (
-        <div className="modal-overlay" onClick={() => setShowForm(false)}>
+        <div className="modal-overlay high-z" onClick={() => setShowForm(false)}>
           <div className="glass-panel modal-content animate-fade-in" onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem' }}>
+            <div className="modal-header">
               <h2>Create New Event</h2>
-              <X className="close-btn" onClick={() => setShowForm(false)} />
+              <X className="close-btn" size={24} onClick={() => setShowForm(false)} />
             </div>
             <form onSubmit={handleSubmit} className="event-form">
               <input type="text" placeholder="Event Title" required onChange={(e) => setFormData({...formData, title: e.target.value})} />
               <textarea placeholder="Description" onChange={(e) => setFormData({...formData, description: e.target.value})}></textarea>
               <div className="form-row">
-                <input type="datetime-local" required onChange={(e) => setFormData({...formData, event_date: e.target.value})} />
+                <input 
+                  type="datetime-local" 
+                  required 
+                  min={new Date().toISOString().slice(0, 16)}
+                  onChange={(e) => setFormData({...formData, event_date: e.target.value})} 
+                />
                 <input type="text" placeholder="Location" required onChange={(e) => setFormData({...formData, location: e.target.value})} />
               </div>
-              <input type="number" placeholder="Capacity" onChange={(e) => setFormData({...formData, capacity: e.target.value})} />
-              <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }}>Save Event</button>
+              <div className="form-row">
+                <input type="number" placeholder="Total Capacity" onChange={(e) => setFormData({...formData, capacity: e.target.value})} />
+                <input type="number" placeholder="Max Team Size" onChange={(e) => setFormData({...formData, team_size: e.target.value})} />
+              </div>
+              <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }}>Create Event</button>
             </form>
           </div>
         </div>
@@ -171,12 +200,12 @@ const App = () => {
       {selectedClub && !showJoinForm && (
         <div className="modal-overlay" onClick={() => setSelectedClub(null)}>
           <div className="glass-panel modal-content animate-fade-in" style={{ maxWidth: '700px' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem' }}>
+            <div className="modal-header">
               <div>
                 <h2 className="gradient-text">{selectedClub.name}</h2>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Club ID: #{selectedClub.id}</p>
               </div>
-              <X className="close-btn" onClick={() => setSelectedClub(null)} />
+              <X className="close-btn" size={24} onClick={() => setSelectedClub(null)} />
             </div>
             
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
@@ -264,12 +293,12 @@ const App = () => {
       {showJoinForm && (
         <div className="modal-overlay" onClick={() => setShowJoinForm(false)}>
           <div className="glass-panel modal-content animate-fade-in" style={{ maxWidth: '500px' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem' }}>
+            <div className="modal-header">
               <div>
                 <h2 className="gradient-text">Join {selectedClub?.name}</h2>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Submit your interest and ideas!</p>
               </div>
-              <X className="close-btn" onClick={() => setShowJoinForm(false)} />
+              <X className="close-btn" size={24} onClick={() => setShowJoinForm(false)} />
             </div>
             
             <form onSubmit={handleJoinSubmit} className="event-form">
@@ -314,16 +343,93 @@ const App = () => {
 
       {/* Event Register Form Modal */}
       {showEventRegisterForm && (
-        <div className="modal-overlay" onClick={() => setShowEventRegisterForm(false)}>
+        <div className="modal-overlay high-z" onClick={() => setShowEventRegisterForm(false)}>
           <div className="glass-panel modal-content animate-fade-in" style={{ maxWidth: '400px' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-              <h2>Register for {selectedEventToRegister?.title}</h2>
-              <X className="close-btn" onClick={() => setShowEventRegisterForm(false)} />
+            <div className="modal-header">
+              <div>
+                <h2>Register for {selectedEventToRegister?.title}</h2>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Choose registration type</p>
+              </div>
+              <X className="close-btn" size={24} onClick={() => setShowEventRegisterForm(false)} />
             </div>
             <form onSubmit={handleEventRegisterSubmit} className="event-form">
-              <input type="text" placeholder="Full Name" required value={eventRegisterData.name} onChange={(e) => setEventRegisterData({...eventRegisterData, name: e.target.value})} />
-              <input type="email" placeholder="Email" required value={eventRegisterData.email} onChange={(e) => setEventRegisterData({...eventRegisterData, email: e.target.value})} />
-              <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }}>Confirm Registration</button>
+              <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
+                <label style={{ flex: 1, cursor: 'pointer' }}>
+                  <input 
+                    type="radio" 
+                    name="regType" 
+                    checked={eventRegisterData.registration_type === 'Individual'} 
+                    onChange={() => setEventRegisterData({...eventRegisterData, registration_type: 'Individual'})}
+                    style={{ marginRight: '0.5rem' }}
+                  />
+                  Individual
+                </label>
+                <label style={{ flex: 1, cursor: 'pointer' }}>
+                  <input 
+                    type="radio" 
+                    name="regType" 
+                    checked={eventRegisterData.registration_type === 'Team'} 
+                    onChange={() => setEventRegisterData({...eventRegisterData, registration_type: 'Team'})}
+                    style={{ marginRight: '0.5rem' }}
+                  />
+                  Team
+                </label>
+              </div>
+
+              {eventRegisterData.registration_type === 'Team' && (
+                <>
+                  <input 
+                    type="text" 
+                    placeholder="Team Name" 
+                    required 
+                    value={eventRegisterData.team_name} 
+                    onChange={(e) => setEventRegisterData({...eventRegisterData, team_name: e.target.value})} 
+                  />
+                  <div style={{ marginBottom: '0.5rem' }}>
+                    <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Number of Members (including lead)</label>
+                    <input 
+                      type="number" 
+                      min="2"
+                      max={selectedEventToRegister?.team_size || 10}
+                      placeholder="Team Size" 
+                      required 
+                      value={eventRegisterData.team_size} 
+                      onChange={(e) => {
+                        const size = parseInt(e.target.value) || 0;
+                        const newMembers = [...eventRegisterData.team_members];
+                        if (size > newMembers.length) {
+                          for(let i=newMembers.length; i<size-1; i++) newMembers.push('');
+                        } else {
+                          newMembers.length = Math.max(0, size - 1);
+                        }
+                        setEventRegisterData({...eventRegisterData, team_size: size, team_members: newMembers});
+                      }} 
+                    />
+                  </div>
+                  
+                  {eventRegisterData.team_members.map((member, index) => (
+                    <input 
+                      key={index}
+                      type="text" 
+                      placeholder={`Member ${index + 2} Name`} 
+                      required 
+                      value={member}
+                      onChange={(e) => {
+                        const newMembers = [...eventRegisterData.team_members];
+                        newMembers[index] = e.target.value;
+                        setEventRegisterData({...eventRegisterData, team_members: newMembers});
+                      }}
+                    />
+                  ))}
+                </>
+              )}
+
+              <input type="text" placeholder="Lead Name" required value={eventRegisterData.name} onChange={(e) => setEventRegisterData({...eventRegisterData, name: e.target.value})} />
+              <input type="email" placeholder="Lead Email" required value={eventRegisterData.email} onChange={(e) => setEventRegisterData({...eventRegisterData, email: e.target.value})} />
+              
+              <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }}>
+                {eventRegisterData.registration_type === 'Team' ? 'Register Team' : 'Confirm Registration'}
+              </button>
             </form>
           </div>
         </div>

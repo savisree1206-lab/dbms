@@ -51,43 +51,44 @@ app.post('/api/clubs', (req, res) => {
 
 // Create a new event
 app.post('/api/events', (req, res) => {
-    const { club_id, title, description, event_date, location, capacity } = req.body;
-    const query = 'INSERT INTO events (club_id, title, description, event_date, location, capacity) VALUES (?, ?, ?, ?, ?, ?)';
+    const { club_id, title, description, event_date, location, capacity, team_size } = req.body;
+    const query = 'INSERT INTO events (club_id, title, description, event_date, location, capacity, team_size) VALUES (?, ?, ?, ?, ?, ?, ?)';
     
-    db.query(query, [club_id, title, description, event_date, location, capacity], (err, results) => {
+    db.query(query, [club_id, title, description, event_date, location, capacity, team_size || 1], (err, results) => {
         if (err) {
             console.error('Error inserting event:', err);
-            return res.status(500).json({ error: err.message });
+            return res.status(500).json({ error: 'Failed to create event: ' + err.message });
         }
-        res.status(201).json({ message: 'Event created successfully', id: results.insertId });
+        res.status(201).json({ message: 'Event created successfully!', id: results.insertId });
     });
 });
 
 app.post('/api/register', (req, res) => {
-    const { event_id, name, email } = req.body;
+    const { event_id, name, email, registration_type, team_name, team_members } = req.body;
     db.query('SELECT id FROM users WHERE email = ?', [email], (err, results) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) return res.status(500).json({ error: 'Database error: ' + err.message });
         if (results.length > 0) {
-            insertRegistration(results[0].id, event_id, res);
+            insertRegistration(results[0].id, event_id, registration_type, team_name, team_members, res);
         } else {
             db.query('INSERT INTO users (name, email, password) VALUES (?, ?, ?)', [name, email, 'defaultpass'], (err, insertRes) => {
-               if (err) return res.status(500).json({ error: err.message });
-               insertRegistration(insertRes.insertId, event_id, res);
+               if (err) return res.status(500).json({ error: 'Failed to create user: ' + err.message });
+               insertRegistration(insertRes.insertId, event_id, registration_type, team_name, team_members, res);
             });
         }
     });
 });
 
-function insertRegistration(user_id, event_id, res) {
-    const query = 'INSERT INTO registrations (user_id, event_id) VALUES (?, ?)';
-    db.query(query, [user_id, event_id], (err, results) => {
+function insertRegistration(user_id, event_id, registration_type, team_name, team_members, res) {
+    const query = 'INSERT INTO registrations (user_id, event_id, registration_type, team_name, team_members) VALUES (?, ?, ?, ?, ?)';
+    const membersStr = Array.isArray(team_members) ? team_members.join(', ') : team_members;
+    db.query(query, [user_id, event_id, registration_type || 'Individual', team_name || null, membersStr || null], (err, results) => {
         if (err) {
             if (err.code === 'ER_DUP_ENTRY') {
-                return res.status(400).json({ error: 'Already registered for this event' });
+                return res.status(400).json({ error: 'You are already registered for this event!' });
             }
-            return res.status(500).json({ error: err.message });
+            return res.status(500).json({ error: 'Registration failed: ' + err.message });
         }
-        res.json({ message: 'Registered successfully', id: results.insertId });
+        res.json({ message: 'Successfully registered for the event!', id: results.insertId });
     });
 }
 
@@ -134,15 +135,28 @@ app.post('/api/clubs/:id/join', (req, res) => {
     const { name, email, applied_position, idea } = req.body;
     const role = applied_position || 'New Member';
     
-    // Insert directly to members for immediate display
-    db.query('INSERT INTO members (club_id, name, email, role) VALUES (?, ?, ?, ?)', [id, name, email, role], (err, memberRes) => {
-        if (err) return res.status(500).json({ error: err.message });
+    // Check if already a member to avoid "error message but saving" confusion
+    db.query('SELECT id FROM members WHERE club_id = ? AND email = ?', [id, email], (err, results) => {
+        if (err) return res.status(500).json({ error: 'Database error: ' + err.message });
         
-        // Also record the request
-        const query = 'INSERT INTO join_requests (club_id, name, email, applied_position, idea, status) VALUES (?, ?, ?, ?, ?, "Approved")';
-        db.query(query, [id, name, email, applied_position, idea], (err, results) => {
-            if (err) return res.status(500).json({ error: err.message });
-            res.status(201).json({ message: 'Join request approved automatically', id: results.insertId });
+        if (results.length > 0) {
+            return res.status(400).json({ error: 'You are already a member of this club!' });
+        }
+
+        // Insert directly to members for immediate display
+        db.query('INSERT INTO members (club_id, name, email, role) VALUES (?, ?, ?, ?)', [id, name, email, role], (err, memberRes) => {
+            if (err) return res.status(500).json({ error: 'Failed to add member: ' + err.message });
+            
+            // Also record the request
+            const query = 'INSERT INTO join_requests (club_id, name, email, applied_position, idea, status) VALUES (?, ?, ?, ?, ?, "Approved")';
+            db.query(query, [id, name, email, applied_position, idea], (err, results) => {
+                if (err) {
+                    console.error('Record request error:', err);
+                    // We don't return error here because member was already added successfully
+                    return res.status(201).json({ message: 'Welcome to the club! Your membership is active.', id: memberRes.insertId });
+                }
+                res.status(201).json({ message: 'Your application has been approved! Welcome to ' + (req.body.club_name || 'the club') + '.', id: memberRes.insertId });
+            });
         });
     });
 });
