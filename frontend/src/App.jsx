@@ -44,6 +44,14 @@ const App = () => {
   const [userClubId, setUserClubId] = useState(null);
   const [joinRequests, setJoinRequests] = useState([]);
   
+  // Notification State
+  const [notification, setNotification] = useState(null);
+
+  const showNotification = (message, type = 'success') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 4000);
+  };
+  
   // Authentication State
   const [authMode, setAuthMode] = useState('selection'); // 'selection', 'student_login', 'student_signup', 'admin_login', 'admin_signup'
   const [authData, setAuthData] = useState({ name: '', email: '', password: '', club_id: '' });
@@ -67,19 +75,19 @@ const App = () => {
       const user = response.data.user;
       setUserRole(user.role);
       setUserClubId(user.club_id);
-      alert(response.data.message);
+      showNotification(response.data.message);
     } catch (err) {
-      alert(err.response?.data?.error || 'Authentication failed');
+      showNotification(err.response?.data?.error || 'Authentication failed', 'error');
     }
   };
 
   const handleApproveRequest = async (reqId) => {
     try {
-      await axios.post(`${API_BASE_URL}/join_requests/${reqId}/approve`);
-      alert('Member approved!');
+      const response = await axios.post(`${API_BASE_URL}/join_requests/${reqId}/approve`);
+      showNotification(response.data.message);
       if (selectedClub) fetchMembersAndEvents(selectedClub.id);
     } catch (error) {
-      alert('Failed to approve member.');
+      showNotification(error.response?.data?.error || 'Failed to approve member.', 'error');
     }
   };
 
@@ -110,22 +118,20 @@ const App = () => {
   }, []);
 
   const fetchMembersAndEvents = async (clubId) => {
-    try {
-      const response = await axios.get(`${API_BASE_URL}/clubs/${clubId}/members`);
-      setClubMembers(response.data);
-      const eventResponse = await axios.get(`${API_BASE_URL}/clubs/${clubId}/events`);
-      setClubEvents(eventResponse.data);
-      const regResponse = await axios.get(`${API_BASE_URL}/clubs/${clubId}/registrations`);
-      setClubRegistrations(regResponse.data);
-      
-      // We check if the selected role is club_member and it matches the clubId
-      // Because state is accessed inside effect, we can just fetch it anyway and filter later, 
-      // but to save requests, we just fetch it.
-      const reqResponse = await axios.get(`${API_BASE_URL}/clubs/${clubId}/join_requests`);
-      setJoinRequests(reqResponse.data);
-    } catch (error) {
-      console.error('Error fetching members or events:', error);
-    }
+    // Independent fetches to avoid one failure blocking others
+    const fetchData = async (endpoint, setter) => {
+      try {
+        const res = await axios.get(`${API_BASE_URL}/clubs/${clubId}/${endpoint}`);
+        setter(res.data);
+      } catch (error) {
+        console.error(`Error fetching ${endpoint}:`, error);
+      }
+    };
+
+    fetchData('members', setClubMembers);
+    fetchData('events', setClubEvents);
+    fetchData('registrations', setClubRegistrations);
+    fetchData('join_requests', setJoinRequests);
   };
 
   useEffect(() => {
@@ -138,13 +144,12 @@ const App = () => {
     e.preventDefault();
     try {
       await axios.post(`${API_BASE_URL}/events`, formData);
-      alert('Event Created Successfully!');
+      showNotification('Event Created Successfully!');
       setShowForm(false);
       fetchEvents();
-      if (selectedClub) fetchMembersAndEvents(selectedClub.id); // Auto-refresh club events
+      if (selectedClub) fetchMembersAndEvents(selectedClub.id);
     } catch (error) {
-      console.error('Error creating event:', error);
-      alert('Failed to create event.');
+      showNotification('Failed to create event.', 'error');
     }
   };
 
@@ -155,13 +160,12 @@ const App = () => {
         ...joinFormData,
         club_name: selectedClub.name
       });
-      alert(response.data.message);
+      showNotification(response.data.message);
       setShowJoinForm(false);
       setJoinFormData({ name: '', email: '', applied_position: 'New Member', idea: '' });
-      await fetchMembersAndEvents(selectedClub.id); // Auto-refresh immediately
+      fetchMembersAndEvents(selectedClub.id);
     } catch (error) {
-      console.error('Error submitting join request:', error);
-      alert(error.response?.data?.error || 'Failed to submit request. Please try again.');
+      showNotification(error.response?.data?.error || 'Failed to submit request.', 'error');
     }
   };
 
@@ -182,13 +186,13 @@ const App = () => {
         team_members: eventRegisterData.registration_type === 'Team' ? eventRegisterData.team_members : null
       });
       setRegisteredEvents([...registeredEvents, selectedEventToRegister.id]);
-      alert('Registered successfully!');
+      showNotification('Registered successfully!');
       setShowEventRegisterForm(false);
       setEventRegisterData({ 
         name: '', email: '', registration_type: 'Individual', team_name: '', team_size: 1, team_members: [] 
       });
     } catch (err) {
-      alert(err.response?.data?.error || 'Registration failed. Please try again.');
+      showNotification(err.response?.data?.error || 'Registration failed.', 'error');
     }
   };
 
@@ -262,6 +266,12 @@ const App = () => {
 
   return (
     <div className="premium-container">
+      {/* Toast Notification */}
+      {notification && (
+        <div className={`toast-notification ${notification.type} animate-fade-in`}>
+          {notification.message}
+        </div>
+      )}
       {/* Navbar */}
       <nav style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4rem' }}>
         <h2 className="gradient-text" style={{ fontSize: '2rem' }}>ClubHub</h2>

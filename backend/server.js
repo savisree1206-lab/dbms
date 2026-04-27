@@ -189,16 +189,26 @@ app.post('/api/clubs/:id/join', (req, res) => {
     const { id } = req.params;
     const { name, email, applied_position, idea } = req.body;
     
-    // Check if already a member
-    db.query('SELECT id FROM members WHERE club_id = ? AND email = ?', [id, email], (err, results) => {
-        if (err) return res.status(500).json({ error: 'Database error: ' + err.message });
-        if (results.length > 0) return res.status(400).json({ error: 'You are already a member of this club!' });
+    if (!name || !email || !applied_position) {
+        return res.status(400).json({ error: 'Please fill all required fields.' });
+    }
 
-        // Record the request as Pending
-        const query = 'INSERT INTO join_requests (club_id, name, email, applied_position, idea, status) VALUES (?, ?, ?, ?, ?, "Pending")';
-        db.query(query, [id, name, email, applied_position, idea], (err, results) => {
-            if (err) return res.status(500).json({ error: 'Failed to submit request: ' + err.message });
-            res.status(201).json({ message: 'Join request submitted! Awaiting club approval.' });
+    // Check if already a member
+    db.query('SELECT id FROM members WHERE club_id = ? AND email = ?', [id, email], (err, memberResults) => {
+        if (err) return res.status(500).json({ error: 'Database error: ' + err.message });
+        if (memberResults.length > 0) return res.status(400).json({ error: 'You are already a member of this club!' });
+
+        // Check for existing pending request
+        db.query('SELECT id FROM join_requests WHERE club_id = ? AND email = ? AND status = "Pending"', [id, email], (err, requestResults) => {
+            if (err) return res.status(500).json({ error: 'Database error: ' + err.message });
+            if (requestResults.length > 0) return res.status(400).json({ error: 'You already have a pending application for this club.' });
+
+            // Record the request as Pending
+            const query = 'INSERT INTO join_requests (club_id, name, email, applied_position, idea, status) VALUES (?, ?, ?, ?, ?, "Pending")';
+            db.query(query, [id, name, email, applied_position, idea], (err, results) => {
+                if (err) return res.status(500).json({ error: 'Failed to submit request: ' + err.message });
+                res.status(201).json({ message: 'Join request submitted! Awaiting club approval.' });
+            });
         });
     });
 });
