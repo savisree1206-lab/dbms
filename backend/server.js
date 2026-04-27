@@ -199,12 +199,12 @@ app.post('/api/clubs/:id/join', (req, res) => {
         if (memberResults.length > 0) return res.status(400).json({ error: 'You are already a member of this club!' });
 
         // Check for existing pending request
-        db.query('SELECT id FROM join_requests WHERE club_id = ? AND email = ? AND status = "Pending"', [id, email], (err, requestResults) => {
+        db.query("SELECT id FROM join_requests WHERE club_id = ? AND email = ? AND status = 'Pending'", [id, email], (err, requestResults) => {
             if (err) return res.status(500).json({ error: 'Database error: ' + err.message });
             if (requestResults.length > 0) return res.status(400).json({ error: 'You already have a pending application for this club.' });
 
             // Record the request as Pending
-            const query = 'INSERT INTO join_requests (club_id, name, email, applied_position, idea, status) VALUES (?, ?, ?, ?, ?, "Pending")';
+            const query = "INSERT INTO join_requests (club_id, name, email, applied_position, idea, status) VALUES (?, ?, ?, ?, ?, 'Pending')";
             db.query(query, [id, name, email, applied_position, idea], (err, results) => {
                 if (err) return res.status(500).json({ error: 'Failed to submit request: ' + err.message });
                 res.status(201).json({ message: 'Join request submitted! Awaiting club approval.' });
@@ -216,7 +216,7 @@ app.post('/api/clubs/:id/join', (req, res) => {
 // GET pending join requests for a club
 app.get('/api/clubs/:id/join_requests', (req, res) => {
     const { id } = req.params;
-    db.query('SELECT * FROM join_requests WHERE club_id = ? AND status = "Pending"', [id], (err, results) => {
+    db.query("SELECT * FROM join_requests WHERE club_id = ? AND status = 'Pending'", [id], (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(results);
     });
@@ -231,7 +231,7 @@ app.post('/api/join_requests/:reqId/approve', (req, res) => {
         
         const request = results[0];
         
-        db.query('UPDATE join_requests SET status = "Approved" WHERE id = ?', [reqId], (updateErr) => {
+        db.query("UPDATE join_requests SET status = 'Approved' WHERE id = ?", [reqId], (updateErr) => {
             if (updateErr) return res.status(500).json({ error: updateErr.message });
             
             db.query('INSERT INTO members (club_id, name, email, role) VALUES (?, ?, ?, ?)', 
